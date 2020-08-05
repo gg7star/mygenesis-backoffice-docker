@@ -1,0 +1,89 @@
+version: '3.5'
+services:
+  # MySQL Service
+  db:
+    image: mysql:5.7.22
+    container_name: mygenesis_mysql
+    hostname: mygenesis_mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    networks:
+      mygenesis-network:
+        aliases:
+          - mygenesis_mysql_network
+    environment:
+      MYSQL_DATABASE: forge
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: root
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - ./dbdata:/var/lib/mysql
+      - ./sql:/root/sql
+      - ./mysql/my.cnf:/etc/mysql/my.cnf
+
+  # PHP Service
+  app:
+    # depends_on:
+    #   - db
+    # links:
+    #   - db:mygenesis_mysql
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mygenesis
+    hostname: mygenesis_app
+    restart: unless-stopped
+    tty: true
+    environment:
+      SERVICE_NAME: mygenesis
+      SERVICE_TAGS: dev
+    working_dir: /var/www
+    networks:
+      mygenesis-network:
+        aliases:
+          - mygenesis_app_network
+    tty: true
+    ports:
+      - "9000:9000"
+    volumes:
+       - ./:/var/www
+       - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+
+# Nginx Service
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./:/var/www
+      - ./nginx/conf.d/:/etc/nginx/conf.d/
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+    networks:
+      mygenesis-network:
+        aliases:
+          - mygenesis_nginx_network
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+
+#Docker Networks
+networks:
+  mygenesis-network:
+    name: mygenesis-network
+    driver: bridge
+
+volumes:
+  dbdata:
+    driver: local
